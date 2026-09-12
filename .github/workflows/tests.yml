@@ -14,8 +14,8 @@ jobs:
     # nepotrebuji prohlizec, Windows ani jedinou zavislost.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
       - name: node tests
@@ -30,7 +30,7 @@ jobs:
     # telefon na USB a spravcovska prava.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: kontrola syntaxe PowerShellu
         shell: pwsh
         run: |
