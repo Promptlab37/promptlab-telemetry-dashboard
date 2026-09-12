@@ -1,0 +1,44 @@
+name: testy
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    # Testy ctou dashboard.html a pousti jeho kod v node:vm s nahradnim DOM -
+    # nepotrebuji prohlizec, Windows ani jedinou zavislost.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: node tests
+        run: |
+          for t in tests/*.cjs; do
+            echo "== $t"
+            node "$t"
+          done
+
+  powershell:
+    # Jen kontrola syntaxe skriptu - spoustet je v CI nejde, chteji cidla,
+    # telefon na USB a spravcovska prava.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: kontrola syntaxe PowerShellu
+        shell: pwsh
+        run: |
+          $chyby = 0
+          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
+            $e = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$e) | Out-Null
+            if ($e.Count) { Write-Host "CHYBA $($_.Name): $($e[0].Message)"; $chyby++ }
+            else { Write-Host "OK    $($_.Name)" }
+          }
+          if ($chyby) { exit 1 }

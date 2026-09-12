@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>System Monitor</title>
+<style>
+/* ------------------------------------------------------------------
+   Navrzeno na 2400x1080 na 6,67" panelu (~391 PPI).
+   Vsechny velikosti jsou zamerne 2,5-3x vetsi nez u desktopoveho
+   dashboardu, jinak je text fyzicky necitelny.
+   Paleta: referencni dataviz paleta (dark), overena validatorem
+   proti podkladu #0b0d10 -> vsechny kontroly PASS.
+   ------------------------------------------------------------------ */
+:root{
+  --plane:     #05070a;   /* hlubsi cerna - AMOLED zhasina pixely uplne */
+  --surface:   #171d26;   /* svetlejsi karta = vyssi kontrast vuci pozadi */
+  --surface-2: #232b37;
+
+  --cpu:       #3987e5;
+  --gpu:       #d95926;
+  --ram:       #199e70;
+
+  --good:      #0ca30c;
+  --warning:   #fab219;
+  --serious:   #ec835a;
+  --critical:  #d03b3b;
+
+  --ink:       #ffffff;
+  --ink-2:     #dedcd3;   /* svetlejsi nez drive */
+  --muted:     #a3a199;   /* svetlejsi nez drive */
+  --grid:      #333a44;
+  --baseline:  #4a515c;
+  --hair:      rgba(255,255,255,0.16);
+
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+/* Zadne cursor:none - kdyby kurzor pres hlidace presto propadl na telefon,
+   musi byt videt, aby slo poznat, kam zmizel. */
+body{background:var(--plane);color:var(--ink);font-family:var(--font);
+     -webkit-font-smoothing:antialiased}
+
+#stage{
+  width:2400px;height:1080px;transform-origin:top left;
+  position:absolute;top:0;left:0;
+  display:grid;grid-template-rows:118px 1fr 322px;gap:22px;
+  /* Plna sirka. Plovoucimu tlacitku spacedesku uhyba jen vnitrek GPU karty
+     (viz .card.c-gpu nize) - overlay zasahuje pouze do radku s kartami. */
+  padding:22px 40px 26px 40px;
+}
+
+/* ---------------- HEADER ---------------- */
+header{display:flex;align-items:baseline;gap:34px;
+       border-bottom:2px solid var(--hair);padding-bottom:18px}
+header .time{font-size:86px;font-weight:250;letter-spacing:-3px;
+             font-variant-numeric:tabular-nums;line-height:1}
+header .date{font-size:34px;color:var(--muted)}
+header .spacer{flex:1}
+header .rig{font-size:28px;color:var(--muted);letter-spacing:.4px}
+
+/* ---------------- STRED: CPU | GPU ---------------- */
+/* GPU karta je sirsi o presne tolik, kolik ji uvnitr sezere odsazeni
+   pro overlay -> obe karty maji stejne velkou plochu pro obsah */
+.mid{display:grid;grid-template-columns:1fr 1.19fr;gap:22px;min-height:0}
+.card{position:relative;overflow:hidden;background:var(--surface);
+      border:2px solid var(--hair);border-radius:26px;
+      padding:30px 34px 26px;display:flex;flex-direction:column;min-height:0}
+/* barevny prouzek nahore nese identitu karty (CPU/GPU) i bez cteni popisku */
+.card::before{content:'';position:absolute;left:0;right:0;top:0;height:6px}
+.card.c-cpu::before{background:var(--cpu)}
+.card.c-gpu::before{background:var(--gpu)}
+/* misto pro plovouci tlacitko spacedesku u praveho okraje */
+.card.c-gpu{padding-right:214px}
+.card .head{display:flex;align-items:center;gap:18px;margin-bottom:14px}
+.card .dot{width:20px;height:20px;border-radius:50%;flex:none}
+.card .title{font-size:34px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--ink-2)}
+.card .chip{margin-left:auto;font-size:24px;color:var(--muted);overflow:hidden;
+            text-overflow:ellipsis;white-space:nowrap;max-width:54%}
+
+.body{display:flex;align-items:center;gap:36px;flex:1;min-height:0}
+.gw{position:relative;flex:none}
+.gw svg{display:block}
+.gv{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.gv .n{font-size:150px;font-weight:250;line-height:.92;letter-spacing:-7px;font-variant-numeric:tabular-nums}
+.gv .u{font-size:38px;color:var(--muted);margin-top:6px}
+.gv .st{font-size:24px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-top:14px}
+
+.right{flex:1;display:flex;flex-direction:column;gap:26px;min-width:0}
+.bar .lbl{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+.bar .lbl .k{font-size:28px;color:var(--ink-2);letter-spacing:.5px}
+.bar .lbl .v{font-size:40px;font-weight:650;font-variant-numeric:tabular-nums}
+.track{height:22px;border-radius:11px;background:var(--surface-2);overflow:hidden}
+.fill{height:100%;border-radius:11px;transition:width .45s cubic-bezier(.4,0,.2,1)}
+
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:20px 30px;margin-top:auto}
+.tile .k{font-size:22px;color:var(--muted);letter-spacing:1.4px;text-transform:uppercase}
+.tile .v{font-size:46px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+.tile .v small{font-size:26px;color:var(--muted);font-weight:400;margin-left:7px}
+
+/* ---------------- SPODEK: RAM + graf ---------------- */
+.bot{display:grid;grid-template-columns:1fr 1.5fr;gap:22px;min-height:0}
+.chart{background:var(--surface);border:2px solid var(--hair);border-radius:26px;
+       padding:22px 30px 16px;display:flex;flex-direction:column;min-height:0}
+.chart .chead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.chart h2{font-size:26px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--ink-2)}
+.legend{display:flex;gap:28px}
+.legend .it{display:flex;align-items:center;gap:11px;font-size:25px;color:var(--ink-2)}
+.legend .sw{width:30px;height:6px;border-radius:3px}
+.plot{flex:1;min-height:0;position:relative}
+.plot svg{position:absolute;inset:0;width:100%;height:100%}
+
+.sys{background:var(--surface);border:2px solid var(--hair);border-radius:26px;
+     padding:26px 34px;display:flex;flex-direction:column;gap:24px;min-height:0}
+.net{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:auto}
+
+/* ---------------- odpojeno ---------------- */
+.stale{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:var(--surface);border:4px solid var(--critical);border-radius:28px;
+  padding:60px 80px;text-align:center;display:none;z-index:50;max-width:1900px}
+.stale h3{color:var(--critical);font-size:64px;margin-bottom:26px}
+.stale p{color:var(--ink-2);font-size:36px;line-height:1.5}
+body.disconnected .stale{display:block}
+body.disconnected #stage{opacity:.2;filter:grayscale(.8)}
+</style>
+</head>
+<body>
+
+<div id="stage">
+
+  <header>
+    <div class="time" id="time">--:--:--</div>
+    <div class="spacer"></div>
+    <div class="date" id="date">—</div>
+  </header>
+
+  <div class="mid">
+
+    <section class="card c-cpu">
+      <div class="head">
+        <span class="dot" style="background:var(--cpu)"></span>
+        <span class="title">CPU</span>
+        <span class="chip" id="cpuName">—</span>
+      </div>
+      <div class="body">
+        <div class="gw">
+          <svg width="360" height="360" viewBox="0 0 360 360">
+            <circle cx="180" cy="180" r="152" fill="none" stroke="var(--surface-2)" stroke-width="26"
+                    stroke-dasharray="716.3 955.0" stroke-linecap="round" transform="rotate(135 180 180)"/>
+            <circle id="cpuArc" cx="180" cy="180" r="152" fill="none" stroke="var(--cpu)" stroke-width="26"
+                    stroke-dasharray="0 955.0" stroke-linecap="round" transform="rotate(135 180 180)"
+                    style="transition:stroke-dasharray .5s cubic-bezier(.4,0,.2,1),stroke .5s"/>
+          </svg>
+          <div class="gv">
+            <div class="n" id="cpuTemp">--</div>
+            <div class="u">°C</div>
+            <div class="st" id="cpuStatus">—</div>
+          </div>
+        </div>
+        <div class="right">
+          <div class="bar">
+            <div class="lbl"><span class="k">Vytížení</span><span class="v" id="cpuLoadT">--</span></div>
+            <div class="track"><div class="fill" id="cpuLoadB" style="width:0;background:var(--cpu)"></div></div>
+          </div>
+          <div class="tiles">
+            <div class="tile"><div class="k">Takt</div><div class="v" id="cpuClock">--<small>MHz</small></div></div>
+            <div class="tile"><div class="k">Příkon</div><div class="v" id="cpuPower">--<small>W</small></div></div>
+            <div class="tile"><div class="k">Jádra</div><div class="v" id="cpuCores">--</div></div>
+            <div class="tile"><div class="k">Nejvyšší dnes</div><div class="v" id="cpuMax">--<small>°C</small></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card c-gpu">
+      <div class="head">
+        <span class="dot" style="background:var(--gpu)"></span>
+        <span class="title">GPU</span>
+        <span class="chip" id="gpuName">—</span>
+      </div>
+      <div class="body">
+        <div class="gw">
+          <svg width="360" height="360" viewBox="0 0 360 360">
+            <circle cx="180" cy="180" r="152" fill="none" stroke="var(--surface-2)" stroke-width="26"
+                    stroke-dasharray="716.3 955.0" stroke-linecap="round" transform="rotate(135 180 180)"/>
+            <circle id="gpuArc" cx="180" cy="180" r="152" fill="none" stroke="var(--gpu)" stroke-width="26"
+                    stroke-dasharray="0 955.0" stroke-linecap="round" transform="rotate(135 180 180)"
+                    style="transition:stroke-dasharray .5s cubic-bezier(.4,0,.2,1),stroke .5s"/>
+          </svg>
+          <div class="gv">
+            <div class="n" id="gpuTemp">--</div>
+            <div class="u">°C</div>
+            <div class="st" id="gpuStatus">—</div>
+          </div>
+        </div>
+        <div class="right">
+          <div class="bar">
+            <div class="lbl"><span class="k">Vytížení</span><span class="v" id="gpuLoadT">--</span></div>
+            <div class="track"><div class="fill" id="gpuLoadB" style="width:0;background:var(--gpu)"></div></div>
+          </div>
+          <div class="bar">
+            <div class="lbl"><span class="k">Video paměť</span><span class="v" id="vramT">--</span></div>
+            <div class="track"><div class="fill" id="vramB" style="width:0;background:var(--gpu);opacity:.6"></div></div>
+          </div>
+          <div class="tiles">
+            <div class="tile"><div class="k">Příkon</div><div class="v" id="gpuPower">--<small>W</small></div></div>
+            <div class="tile"><div class="k">Ventilátor</div><div class="v" id="gpuFan">--<small>%</small></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="bot">
+
+    <section class="sys">
+      <div class="bar">
+        <div class="lbl"><span class="k">Operační paměť</span><span class="v" id="ramT">--</span></div>
+        <div class="track"><div class="fill" id="ramB" style="width:0;background:var(--ram)"></div></div>
+      </div>
+      <div class="net">
+        <div class="tile"><div class="k">Stahování</div><div class="v" id="netDown">--<small>MB/s</small></div></div>
+        <div class="tile"><div class="k">Odesílání</div><div class="v" id="netUp">--<small>MB/s</small></div></div>
+      </div>
+    </section>
+
+    <section class="chart">
+      <div class="chead">
+        <h2>Teploty · 5 minut</h2>
+        <div class="legend">
+          <div class="it"><span class="sw" style="background:var(--cpu)"></span>CPU</div>
+          <div class="it"><span class="sw" style="background:var(--gpu)"></span>GPU</div>
+        </div>
+      </div>
+      <div class="plot"><svg id="tempPlot" preserveAspectRatio="none"></svg></div>
+    </section>
+
+  </div>
+</div>
+
+<div class="stale">
+  <h3>Ztraceno spojení se senzory</h3>
+  <p id="staleMsg">Čekám na LibreHardwareMonitor…</p>
+</div>
+
+<script>
+'use strict';
+
+function fit(){
+  const s = Math.min(innerWidth/2400, innerHeight/1080);
+  const st = document.getElementById('stage');
+  st.style.transform = 'scale('+s+')';
+  st.style.left = ((innerWidth  - 2400*s)/2)+'px';
+  st.style.top  = ((innerHeight - 1080*s)/2)+'px';
+}
+addEventListener('resize', fit); fit();
+
+const DNY = ['neděle','pondělí','úterý','středa','čtvrtek','pátek','sobota'];
+const MES = ['ledna','února','března','dubna','května','června','července','srpna','září','října','listopadu','prosince'];
+function tick(){
+  const d = new Date();
+  document.getElementById('time').textContent =
+    String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+  document.getElementById('date').textContent = DNY[d.getDay()]+', '+d.getDate()+'. '+MES[d.getMonth()];
+}
+setInterval(tick,1000); tick();
+
+function num(s){
+  if(s===null||s===undefined) return NaN;
+  const m = String(s).replace(/ /g,' ').match(/-?[\d\s.,]+/);
+  if(!m) return NaN;
+  let t = m[0].replace(/\s/g,'');
+  if(t.includes('.') && t.includes(',')) t = t.replace(/\./g,'').replace(',','.');
+  else t = t.replace(',','.');
+  const v = parseFloat(t);
+  return isNaN(v) ? NaN : v;
+}
+const fmt = (v,d)=> isNaN(v) ? '--' : v.toFixed(d===undefined?0:d);
+
+function flatten(root){
+  const out=[];
+  const machine = (root.Children&&root.Children[0]) ? root.Children[0] : null;
+  if(!machine) return {list:out,host:'—'};
+  (machine.Children||[]).forEach(hw=>{
+    (hw.Children||[]).forEach(grp=>{
+      (grp.Children||[]).forEach(sn=>{
+        out.push({hw:hw.Text||'', grp:grp.Text||'', name:sn.Text||'',
+                  value:sn.Value, min:sn.Min, max:sn.Max});
+      });
+    });
+  });
+  return {list:out, host:machine.Text||'—'};
+}
+function pick(list, hwRe, grpRe, nameRes){
+  for(const nre of nameRes){
+    const hit = list.find(s=> hwRe.test(s.hw) && grpRe.test(s.grp) && nre.test(s.name));
+    if(hit && !isNaN(num(hit.value))) return hit;
+  }
+  return null;
+}
+const val = h => h ? num(h.value) : NaN;
+
+function tempState(t){
+  if(isNaN(t))  return {c:'var(--muted)',    l:'—'};
+  if(t < 60)    return {c:'var(--good)',     l:'V normě'};
+  if(t < 75)    return {c:'var(--warning)',  l:'Zvýšená'};
+  if(t < 88)    return {c:'var(--serious)',  l:'Vysoká'};
+  return              {c:'var(--critical)',  l:'Kritická'};
+}
+
+const N = 150;
+const hist = {ct:[], gt:[]};
+function push(k,v){ const a=hist[k]; a.push(isNaN(v)?null:v); if(a.length>N) a.shift(); }
+
+function draw(svgId, series, yMin, yMax, unit){
+  const svg = document.getElementById(svgId);
+  const W = svg.clientWidth || 1, H = svg.clientHeight || 1;
+  const padL = 78, padR = 108, padT = 14, padB = 26;
+  const x = i => padL + (W-padL-padR) * (i/(N-1));
+  const y = v => padT + (H-padT-padB) * (1 - (v-yMin)/(yMax-yMin));
+  let s = '';
+  const steps = 3;
+  for(let i=0;i<=steps;i++){
+    const v = yMin + (yMax-yMin)*i/steps, yy = y(v);
+    s += '<line x1="'+padL+'" y1="'+yy+'" x2="'+(W-padR)+'" y2="'+yy+'" stroke="var(--grid)" stroke-width="2"/>';
+    s += '<text x="'+(padL-14)+'" y="'+(yy+9)+'" text-anchor="end" font-size="26" fill="var(--muted)" '+
+         'font-family="system-ui,sans-serif">'+Math.round(v)+'</text>';
+  }
+  series.forEach(se=>{
+    const a = hist[se.k];
+    let d='', open=false;
+    for(let i=0;i<a.length;i++){
+      const idx = N - a.length + i, v = a[i];
+      if(v===null){ open=false; continue; }
+      d += (open?'L':'M') + x(idx).toFixed(1) + ' ' + y(v).toFixed(1) + ' ';
+      open = true;
+    }
+    if(d) s += '<path d="'+d+'" fill="none" stroke="'+se.c+'" stroke-width="5" '+
+               'stroke-linejoin="round" stroke-linecap="round"/>';
+    const last = [...a].reverse().find(v=>v!==null && v!==undefined);
+    if(last!==undefined && last!==null){
+      const yy = Math.max(padT+18, Math.min(H-padB-4, y(last)));
+      s += '<circle cx="'+x(N-1)+'" cy="'+y(last)+'" r="9" fill="'+se.c+'" stroke="var(--surface)" stroke-width="4"/>';
+      s += '<text x="'+(W-padR+18)+'" y="'+(yy+11)+'" font-size="32" font-weight="700" fill="'+se.c+'" '+
+           'font-family="system-ui,sans-serif">'+Math.round(last)+unit+'</text>';
+    }
+  });
+  s += '<line x1="'+padL+'" y1="'+(H-padB)+'" x2="'+(W-padR)+'" y2="'+(H-padB)+'" stroke="var(--baseline)" stroke-width="2"/>';
+  svg.innerHTML = s;
+}
+
+const CIRC = 2*Math.PI*152, SWEEP = CIRC*0.75;
+function gauge(id, v, min, max, color){
+  const el = document.getElementById(id);
+  const p = isNaN(v) ? 0 : Math.max(0, Math.min(1, (v-min)/(max-min)));
+  el.setAttribute('stroke-dasharray', (SWEEP*p).toFixed(1)+' '+CIRC.toFixed(1));
+  el.setAttribute('stroke', color);
+}
+
+function toMBs(h){
+  if(!h) return NaN;
+  const v = num(h.value), u = String(h.value||'');
+  if(isNaN(v)) return NaN;
+  if(/KB\/s/i.test(u)) return v/1024;
+  if(/GB\/s/i.test(u)) return v*1024;
+  if(/MB\/s/i.test(u)) return v;
+  return v/1048576;
+}
+
+let fails = 0;
+
+async function update(){
+  let data;
+  try{
+    const r = await fetch('/api', {cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    data = await r.json();
+    if(data.error) throw new Error(data.error);
+    fails = 0;
+    document.body.classList.remove('disconnected');
+  }catch(e){
+    if(++fails >= 3){
+      document.body.classList.add('disconnected');
+      document.getElementById('staleMsg').textContent =
+        'LibreHardwareMonitor neodpovídá. Musí běžet jako správce a mít zapnutý Remote Web Server na portu 8085.';
+    }
+    return;
+  }
+
+  const {list} = flatten(data);
+
+  const CPU = /ryzen|core|intel|amd|xeon|ultra/i;
+  const GPU = /nvidia|geforce|radeon|rtx|gtx/i;
+  const T = /temperatur/i, L = /^load/i, C = /clock/i, P = /power/i, D = /^data$/i, F = /fan|control/i;
+  const hwList = (data.Children && data.Children[0] && data.Children[0].Children) ? data.Children[0].Children : [];
+
+  /* CPU */
+  const cpuHw = hwList.find(h=>CPU.test(h.Text||'') && !GPU.test(h.Text||''));
+  document.getElementById('cpuName').textContent = cpuHw ? cpuHw.Text : '—';
+  const cpuT = pick(list, CPU, T, [/^CPU Package$/i, /Tctl|Tdie/i, /^CPU Cores?$/i, /Core Max/i, /Core #?1/i]);
+  const cpuL = pick(list, CPU, L, [/^CPU Total$/i, /Total/i]);
+  const cpuC = pick(list, CPU, C, [/P-?Core|Core #?1|^CPU Core/i, /Core/i]);
+  const cpuP = pick(list, CPU, P, [/^CPU Package$/i, /Package|Total/i]);
+  const ct = val(cpuT), cl = val(cpuL), cs = tempState(ct);
+  document.getElementById('cpuTemp').textContent = fmt(ct);
+  gauge('cpuArc', ct, 25, 100, cs.c);
+  const cS = document.getElementById('cpuStatus'); cS.textContent = cs.l; cS.style.color = cs.c;
+  document.getElementById('cpuLoadT').textContent = fmt(cl,1)+' %';
+  document.getElementById('cpuLoadB').style.width = (isNaN(cl)?0:cl)+'%';
+  document.getElementById('cpuClock').innerHTML = fmt(val(cpuC))+'<small>MHz</small>';
+  document.getElementById('cpuPower').innerHTML = fmt(val(cpuP),1)+'<small>W</small>';
+  const cores = list.filter(s=>CPU.test(s.hw) && L.test(s.grp) && /^CPU Core #?\d+$/i.test(s.name)).length;
+  document.getElementById('cpuCores').textContent = cores || '--';
+  document.getElementById('cpuMax').innerHTML =
+    (cpuT && !isNaN(num(cpuT.max)) ? fmt(num(cpuT.max)) : '--')+'<small>°C</small>';
+
+  /* GPU */
+  const gpuHw = hwList.find(h=>GPU.test(h.Text||''));
+  document.getElementById('gpuName').textContent = gpuHw ? gpuHw.Text : '—';
+  const gpuT = pick(list, GPU, T, [/^GPU Core$/i, /^GPU$/i, /Hot ?Spot/i, /Core/i]);
+  const gpuL = pick(list, GPU, L, [/^GPU Core$/i, /Core/i]);
+  const gpuP = pick(list, GPU, P, [/^GPU Package$/i, /Package|Total|Board/i]);
+  const gpuF = pick(list, GPU, F, [/Fan/i]);
+  const vU = pick(list, GPU, D, [/^GPU Memory Used$/i, /^Memory Used$/i, /Dedicated Memory Used/i]);
+  const vT = pick(list, GPU, D, [/^GPU Memory Total$/i, /^Memory Total$/i]);
+  const gt = val(gpuT), gl = val(gpuL), gs = tempState(gt);
+  document.getElementById('gpuTemp').textContent = fmt(gt);
+  gauge('gpuArc', gt, 25, 100, gs.c);
+  const gS = document.getElementById('gpuStatus'); gS.textContent = gs.l; gS.style.color = gs.c;
+  document.getElementById('gpuLoadT').textContent = fmt(gl,1)+' %';
+  document.getElementById('gpuLoadB').style.width = (isNaN(gl)?0:gl)+'%';
+  document.getElementById('gpuPower').innerHTML = fmt(val(gpuP),1)+'<small>W</small>';
+  document.getElementById('gpuFan').innerHTML = fmt(val(gpuF))+'<small>%</small>';
+  const vu = val(vU), vt = val(vT);
+  if(!isNaN(vu) && !isNaN(vt) && vt>0){
+    document.getElementById('vramT').textContent = (vu/1024).toFixed(1)+' / '+(vt/1024).toFixed(1)+' GB';
+    document.getElementById('vramB').style.width = (vu/vt*100)+'%';
+  } else { document.getElementById('vramT').textContent = '--'; }
+
+  /* RAM */
+  /* LHM ma DVA pametove uzly se shodne pojmenovanymi senzory:
+       "Total Memory"    = fyzicka RAM        <- chceme
+       "Virtual Memory"  = RAM + page file    <- nechceme
+     Rozlisuje je nazev HARDWARU, ne senzoru, proto lookahead na "Virtual". */
+  const MEM = /^(?!Virtual\s)(.*\s)?Memory$/i;
+  const rl = val(pick(list, MEM, L, [/^Memory$/i]));
+  const ru = val(pick(list, MEM, D, [/^Memory Used$/i]));
+  const ra = val(pick(list, MEM, D, [/^Memory Available$/i]));
+  document.getElementById('ramB').style.width = (isNaN(rl)?0:rl)+'%';
+  document.getElementById('ramT').textContent =
+    (!isNaN(ru)&&!isNaN(ra)) ? ru.toFixed(1)+' / '+(ru+ra).toFixed(1)+' GB' : (isNaN(rl)?'--':fmt(rl,1)+' %');
+
+  /* sit */
+  const nets = list.filter(s=>/^Throughput$/i.test(s.grp));
+  const sum = a => a.length ? a.reduce((x,y)=>x+y,0) : NaN;
+  document.getElementById('netDown').innerHTML =
+    fmt(sum(nets.filter(s=>/Download/i.test(s.name)).map(toMBs).filter(v=>!isNaN(v))),2)+'<small>MB/s</small>';
+  document.getElementById('netUp').innerHTML =
+    fmt(sum(nets.filter(s=>/Upload/i.test(s.name)).map(toMBs).filter(v=>!isNaN(v))),2)+'<small>MB/s</small>';
+
+  /* graf */
+  push('ct',ct); push('gt',gt);
+  const temps = [...hist.ct,...hist.gt].filter(v=>v!==null);
+  const hiT = temps.length ? Math.max(90, Math.ceil(Math.max(...temps)/10)*10) : 90;
+  draw('tempPlot', [{k:'ct',c:'var(--cpu)'},{k:'gt',c:'var(--gpu)'}], 20, hiT, '°');
+}
+
+update();
+setInterval(update, 2000);
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+# --- co vznika za behu (nikdy do repa) ---
+*.log
+comfy.json
+limity.json
+sleep.flag
+*.bak
+
+# --- lokalni prostredi ---
+.chrome-profile/
+*.local.ps1
+
+# --- Android build ---
+app/out/
+app/build/
+app/.gradle/
+*.apk
+# Podpisovy klic se generuje pri prvnim buildu (app/build.ps1). Do repa
+# nepatri: kdo ho ma, muze podepsat APK, ktere telefon prijme jako aktualizaci.
+app/debug.keystore
+*.keystore
+*.jks
