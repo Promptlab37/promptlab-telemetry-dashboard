@@ -1,3 +1,5 @@
+**Čeština** · [English](README.en.md)
+
 # PROMPTLAB · System Telemetry
 
 **Starý telefon jako trvalá přístrojová deska počítače.** Teploty, vytížení,
@@ -6,12 +8,6 @@ bez cloudu a bez účtu. Telefon visí na USB, stránka běží v něm, počíta
 posílá data.
 
 ![Dashboard na telefonu](docs/dashboard.png)
-
-> **In English:** turn a retired Android phone into a permanent hardware
-> dashboard for a Windows PC. LibreHardwareMonitor reads the sensors, a tiny
-> PowerShell server serves one HTML page over `adb reverse` (USB only — nothing
-> is exposed to the network), and a minimal WebView app shows it fullscreen and
-> wakes the screen when you come back to your desk. The UI is in Czech.
 
 ---
 
